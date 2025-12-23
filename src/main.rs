@@ -5,6 +5,19 @@ fn key_to_bits(key: u128) -> Vec<u8> {
     }
     bits
 }
+fn key_bit_hex(key_bits: &Vec::<u8>) ->  String 
+{
+ let mut hex_string = String::new();
+
+ for chunk in key_bits.chunks(4) {
+    let mut value = 0;
+    for &bit in chunk {
+        value = (value << 1) | bit;
+    }
+    hex_string.push_str(&format!("{:X}", value));
+}    
+    hex_string        
+}
 
 fn  parity_drop(key :Vec<u8> ) -> Vec<u8> 
 {
@@ -88,8 +101,10 @@ fn  key_generator(key : u128) -> Vec::<Vec::<u8>>
 fn main() {
 
 let key : u128 = 0x22234512987ABB23 ;
-
-println!("16 round Keys : {:?}", key_generator(key));
-
+let  keys : Vec<Vec<u8>> =key_generator(key);
+for  i in 0..16
+{
+   println!("Round  {}  : {}", i+1, key_bit_hex(&keys[i]));
+}
 
 }
