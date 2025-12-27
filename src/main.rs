@@ -29,7 +29,7 @@ const PC1: [usize; 56] = [
     14,6,61,53,45,37,29,
     21,13,5,28,20,12,4
 ];
-
+/* /
 fn parity_drop(key: Vec<u8>) -> Vec<u8> {
     let mut permuted = Vec::with_capacity(56);
     for &i in PC1.iter() {
@@ -37,7 +37,7 @@ fn parity_drop(key: Vec<u8>) -> Vec<u8> {
     }
     permuted
 }
-
+*/
 fn split (key56 :Vec<u8>, len :usize ) -> (Vec<u8>, Vec<u8>)
 {
       return (key56[..len].to_vec(), key56[len..].to_vec()); 
@@ -85,15 +85,15 @@ fn compression(key28_1:&Vec<u8> ,key28_2 : &Vec<u8>) -> Vec<u8>
 fn  key_generator(key : u128) -> Vec::<Vec::<u8>>
 {
     let  mut  keys = Vec::<Vec::<u8>>::with_capacity(16);
-    let    key56 = parity_drop(key_to_bits(key) ) ;
+  //  let    key56 = parity_drop(key_to_bits(key) ) ;
+    let key56=permutation(key_to_bits(key), &PC1);
+
     let (mut left28, mut right28)  = split (key56, 28) ;
 
     for  i in 0..16
     {
        shift_left(&mut left28, SHIFT_TABLE[i]);
        shift_left(&mut right28,SHIFT_TABLE[i]);
-    //   let left28_clone = left28.clone();
-     //  let right28_clone =  right28.clone();
        keys.push(compression(&left28,&right28));
     
         
@@ -268,29 +268,24 @@ fn encrypt(plaintext64 :Vec <u8>, key64 :u128) -> Vec<u8>
 }
 
 fn decrypt(ciphertext64: Vec<u8>, key64: u128) -> Vec<u8> {
-    // 1. Initial permutation
     let permuted = permutation(ciphertext64, &INITIAL_PERM);
     let (mut left32, mut right32) = split(permuted, 32);
 
-    // 2. Generate keys
     let keys = key_generator(key64);
 
-    // 3. Rounds 1..15 (in reverse)
     for i in (1..16).rev() {
         let (l, r) = mixer(left32.clone(), right32.clone(), keys[i].clone());
-        left32 = r;  // swap
-        right32 = l; // swap
+        left32 = r;  
+        right32 = l;
     }
 
-    // 4. 16th round (no swap)
+    
     left32 = xor(function(right32.clone(), keys[0].clone()), left32);
 
-    // 5. Concatenate halves
     let mut preoutput = Vec::with_capacity(64);
     preoutput.extend(left32);
     preoutput.extend(right32);
 
-    // 6. Final permutation
     permutation(preoutput, &FINAL_PERM)
 }
 
@@ -323,16 +318,52 @@ fn encrypt_text(plaintext: &str, key: u128) -> Vec<u8> {
     }
 
     result
+}fn bits_to_bytes(bits: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for chunk in bits.chunks(8) {
+        let mut value = 0u8;
+        for &b in chunk {
+            value = (value << 1) | b;
+        }
+        bytes.push(value);
+    }
+    bytes
+}
+
+fn decrypt_text(cipher_bits: &[u8], key: u128) -> String {
+    let mut plaintext_bytes = Vec::new();
+
+    for block in cipher_bits.chunks(64) {
+        let decrypted_bits = decrypt(block.to_vec(), key);
+        let bytes = bits_to_bytes(&decrypted_bits);
+        plaintext_bytes.extend(bytes);
+    }
+
+    // remove zero padding
+    while plaintext_bytes.last() == Some(&0) {
+        plaintext_bytes.pop();
+    }
+
+    String::from_utf8(plaintext_bytes).unwrap()
 }
 
 fn main() {
-    let plaintext: u128 = 0x123456ABCD132536;
-    let key: u128 = 0x22234512987ABB23;
+ // let plaintext: u128 = 0x123456ABCD132536;
+   // let key: u128 = 0xAABB09182736CCDD;
 
-    //let ciphertext_bits = encrypt_text(plaintext, key);
-    let cipher= encrypt( key_to_bits(plaintext), key);
-    println!("Ciphertext (HEX): {}", key_bit_hex(&cipher));
-        println!("plaintext (HEX): {}", key_bit_hex(&decrypt(cipher, key)));
+  //  let ciphertext_bits = encrypt(plaintext, key);
+ //  let cipher= encrypt( key_to_bits(plaintext), key);
+ //  println!("Ciphertext (HEX): {}", key_bit_hex(&cipher));
+ //      println!("plaintext (HEX): {}", key_bit_hex(&decrypt(key_to_bits(0xC0B7A8D05F3A829C), key)));
+
+    let plaintext = "HELLO DES'cc09ււդււե   kj";
+    let key: u128 = 0xAABB09182736CCDD;
+
+    let cipher_bits = encrypt_text(plaintext, key);
+    println!("Ciphertext (HEX): {}", key_bit_hex(&cipher_bits));
+    let decrypted_text = decrypt_text(&cipher_bits, key);
+    println!("Decrypted text: {}", decrypted_text);
+
 
 }
 
