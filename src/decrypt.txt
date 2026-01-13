@@ -1,0 +1,18 @@
+isive book (Brooks, 1995) describing his experiences with OS/360. While it
+would be impossible to summarize the book here, suffice it to say that the cover
+shows a herd of prehistoric beasts stuck in a tar pit. The cover of Silberschatz et al.
+(2012) makes a similar point about operating systems being dinosaurs.
+Despite its enormous size and problems, OS/360 and the similar third-generation operating systems produced by other computer manufacturers actually satisfied most of their customers reasonably well. They also popularized several key
+techniques absent in second-generation operating systems. Probably the most important of these was multiprogramming. On the 7094, when the current job
+paused to wait for a tape or other I/O operation to complete, the CPU simply sat
+idle until the I/O finished. With heavily CPU-bound scientific calculations, I/O is
+infrequent, so this wasted time is not significant. With commercial data processing,
+the I/O wait time can often be 80 or 90% of the total time, so something had to be
+done to avoid having the (expensive) CPU be idle so much.
+The solution that evolved was to partition memory into several pieces, with a
+different job in each partition, as shown in Fig. 1-5. While one job was waiting for
+I/O to complete, another job could be using the CPU. If enough jobs could be held
+in main memory at once, the CPU could be kept busy nearly 100% of the time.
+Having multiple jobs safely in memory at once requires special hardware to protect
+each job against snooping and mischief by the other ones, but the 360 and other
+third-generation systems were equipped with this hardware.33

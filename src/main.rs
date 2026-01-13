@@ -1,218 +1,181 @@
 mod tables;
-use crate::tables::{INITIAL_PERM, FINAL_PERM, EXPD, PER, SBOX,PC1, PC2, SHIFT_TABLE};
-use std::time::{ Instant};
+use crate::tables::{
+    INITIAL_PERM, FINAL_PERM, EXPD, PER, SBOX, PC1, PC2, SHIFT_TABLE,
+};
+
+use std::fs::File;
+use std::io::{self, Read, Write};
+use std::path::Path;
+
+/* ===================== DES CORE ===================== */
 
 #[inline(always)]
-fn round (left32:u32,right32: u32,key48:  u64)-> (u32, u32)
-{
-      let (l, r)=mixer(left32,right32,key48);
-      return  swapper(l,r);
-   
-}
-#[inline(always)]
-fn swapper ( left32: u32,  right32:u32) -> (u32, u32) 
-{         
-        
-     (right32, left32)
+fn round(left: u32, right: u32, key: u64) -> (u32, u32) {
+    let new_left = left ^ function(right, key);
+    (right, new_left)
 }
 
-#[inline(always)]
-fn xor (a: u32, b:u32) -> u32
-{
-    return a ^b;
+fn function(input32: u32, key48: u64) -> u32 {
+    let expanded = perm(input32 as u64, &EXPD, 32);
+    let xored = expanded ^ key48;
+    let sboxed = s_box(xored);
+    perm(sboxed as u64, &PER, 32) as u32
 }
 
-#[inline(always)]
-fn mixer(left32: u32,right32: u32,key48:  u64 )->  (u32, u32)
-{
-         let new_left = xor(function(right32, key48), left32);
-         (new_left, right32)
-}
+fn s_box(input48: u64) -> u32 {
+    let mut out = 0u32;
 
-fn s_box(input48:  u64) ->   u32
-{
-    let mut output32 : u32 = 0;
-
-    for i in 0..8
-    {
-        let shift =  42 -  i*6 ; 
-        let chunk6 = ((input48 >> shift) & 0b111111) as u8;
-        let   row= ((chunk6 & 0b100000) >> 4 )  |  (chunk6 & 0b000001);
-        let col = (chunk6 & 0b011110 )>>1;
+    for i in 0..8 {
+        let shift = 42 - i * 6;
+        let chunk = ((input48 >> shift) & 0x3F) as u8;
+        let row = ((chunk & 0x20) >> 4) | (chunk & 1);
+        let col = (chunk >> 1) & 0x0F;
         let val = SBOX[i][row as usize][col as usize] as u32;
-
-        output32 |= val << (28- 4*i );
-
-    } 
-
-    output32 
-}
- 
-fn function(input32 :  u32,  key48 :   u64) ->   u32
-{
-      
-    
-
-    let entended : u64= perm(input32 as u64, &EXPD, 32);
-    let xored =  entended ^ key48;
-    let  sboxed: u32 = s_box(xored);  
-
-     perm(sboxed as u64,&PER,32 )  as u32 
- 
-  
+        out |= val << (28 - i * 4);
+    }
+    out
 }
 
-
-fn perm(input:  u64, matrix: &[usize], size: u8)   -> u64  {
-    let mut result: u64 = 0;
-
-    for (i, &pos) in matrix.iter().enumerate() {
-        // Read bit from input (DES uses 1-based indexing)
+fn perm(input: u64, table: &[usize], size: u8) -> u64 {
+    let mut out = 0u64;
+    for (i, &pos) in table.iter().enumerate() {
         let bit = (input >> (size as usize - pos)) & 1;
+        out |= bit << (table.len() - 1 - i);
+    }
+    out
+}
 
-        // Place bit in output
-        result |= bit << (matrix.len() - 1 - i);
+fn split(input: u64) -> (u32, u32) {
+    ((input >> 32) as u32, input as u32)
+}
+
+fn encrypt_block(block: u64, keys: &[u64; 16]) -> u64 {
+    let permuted = perm(block, &INITIAL_PERM, 64);
+    let (mut l, mut r) = split(permuted);
+
+    for i in 0..16 {
+        let (nl, nr) = round(l, r, keys[i]);
+        l = nl;
+        r = nr;
     }
 
-    result
-}
- 
-fn split(input: u64, size: u8) -> (u32, u32) {
-    let mask: u64 = (1u64 << size) - 1;
-
-    let left  = ((input >> size) & mask) as u32;
-    let right = (input & mask) as u32;
-
-    (left, right)
-}
-#[inline(always)]
-fn shift_left(key28: u32, shift: usize) -> u32 {
-    //let shift = shift % 28;
-    ((key28 << shift) | (key28 >> (28 - shift))) & 0x0FFFFFFF
-}
-#[inline(always)]
-fn combine (key28_1:u32 ,key28_2 : u32 )-> u64
-{
-     let c = (key28_1 & 0x0FFFFFFF) as u64;
-     let b = (key28_2 & 0x0FFFFFFF ) as u64;
-
-      (c << 28 )| b
-}
-#[inline(always)]
-fn compression(key28_1:u32 ,key28_2 : u32 )-> u64  // 48 bit
-{   
-
-    let concat = combine(key28_1 , key28_2 ); 
-    
-    perm(concat, &PC2, 56) 
+    let pre_output = (r as u64) << 32 | (l as u64);
+    perm(pre_output, &FINAL_PERM, 64)
 }
 
 fn key_generator(key: u64) -> [u64; 16] {
-    let mut keys: [u64; 16] = [0; 16];
-
+    let mut keys = [0u64; 16];
     let key56 = perm(key, &PC1, 64);
-    let (mut left28, mut right28) = split(key56, 28);
+    let mut c = (key56 >> 28) as u32 & 0x0FFFFFFF;
+    let mut d = key56 as u32 & 0x0FFFFFFF;
 
     for i in 0..16 {
-        left28  = shift_left(left28, SHIFT_TABLE[i]);
-        right28 = shift_left(right28, SHIFT_TABLE[i]);
-        keys[i] = compression(left28, right28);
+        c = ((c << SHIFT_TABLE[i]) | (c >> (28 - SHIFT_TABLE[i]))) & 0x0FFFFFFF;
+        d = ((d << SHIFT_TABLE[i]) | (d >> (28 - SHIFT_TABLE[i]))) & 0x0FFFFFFF;
+        let cd = ((c as u64) << 28) | d as u64;
+        keys[i] = perm(cd, &PC2, 56);
     }
-
     keys
 }
 
+/* ===================== HEX HELPERS ===================== */
 
-
-
-fn encrypt(plaintext64:  u64, keys: &[u64; 16]) ->   u64
-{
-     
-    let permuted=perm(plaintext64,&INITIAL_PERM, 64);
-    let (mut left32, mut right32)= split(permuted, 32);
-
-    for i in 0..16 {
-        let (l, r) = round(left32, right32, keys[i]);
-        left32 = l;
-        right32 = r;
-    }
-
-    let pre_output = (right32 as u64) << 32 | (left32 as u64);
-
-    perm(pre_output,&FINAL_PERM, 64)
-    
-     
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02X}", b)).collect()
 }
 
-fn encrypt_loop(plaintext:  u64, key: &[u64; 16 ], rounds: usize) ->  u64 { 
-    let mut result = plaintext;
-    for _ in 0..rounds {
-        result = encrypt(result, key);
-    }
-    result
+fn hex_to_bytes(hex: &str) -> Vec<u8> {
+    hex.as_bytes()
+        .chunks(2)
+        .map(|c| u8::from_str_radix(std::str::from_utf8(c).unwrap(), 16).unwrap())
+        .collect()
 }
 
+/* ===================== FILE ENCRYPT ===================== */
 
-fn encrypt_without_last_perm(plaintext64:  u64, keys: &[u64; 16]) -> u64
-{
-     
-    let (mut left32, mut right32)= split(plaintext64, 32);
+fn encrypt_file_hex(input: &Path, output: &Path, key: u64) -> io::Result<()> {
+    let keys = key_generator(key);
+    let mut input = File::open(input)?;
+    let mut output = File::create(output)?;
 
-    for i in 0..16 {
-        let (l, r) = round(left32, right32, keys[i]);
-        left32 = l;
-        right32 = r;
+    let mut buf = [0u8; 8];
+
+    loop {
+        let n = input.read(&mut buf)?;
+
+        if n == 0 {
+            let pad = 8u8;
+            let block = u64::from_be_bytes([pad; 8]);
+            let enc = encrypt_block(block, &keys);
+            write!(output, "{:016X}", enc)?;
+            break;
+        }
+
+        if n < 8 {
+            let pad: u8 = (8 - n) as u8;
+            for i in n..8 {
+                buf[i] = pad;
+            }
+            let block = u64::from_be_bytes(buf);
+            let enc = encrypt_block(block, &keys);
+            write!(output, "{:016X}", enc)?;
+            break;
+        }
+
+        let block = u64::from_be_bytes(buf);
+        let enc = encrypt_block(block, &keys);
+        write!(output, "{:016X}", enc)?;
     }
-
-     (right32 as u64) << 32 | (left32 as u64)    
-     
+    Ok(())
 }
 
-fn triple_des(plaintext64: u64 , key1 : &[u64; 16], key2 :&[u64; 16] ) -> u64
-{    
-    let permuted=perm(plaintext64,&INITIAL_PERM, 64);
+/* ===================== FILE DECRYPT ===================== */
 
-    let   phase_1=encrypt_without_last_perm(permuted, key1); 
-   
+fn decrypt_file_hex(input: &Path, output: &Path, key: u64) -> io::Result<()> {
+    let mut keys = key_generator(key);
+    keys.reverse(); 
 
-    let   phase_2=encrypt_without_last_perm(phase_1, key2); 
-
-    let   phase_3=encrypt_without_last_perm(phase_2, key1);
-
-
-    perm(phase_3,&FINAL_PERM, 64)
+    let mut hex = String::new();
+    File::open(input)?.read_to_string(&mut hex)?;
+    let bytes = hex_to_bytes(&hex);
 
 
-} 
- 
+    let mut out = File::create(output)?;
 
-fn main() {
-   let   input: u64 = 0x123456ABCD132536;
-   let   key1 = 0xAABB09182736CCDD ;
- //  let   key2 = 0xAABB09182736CCD2 ;
+    for (i, chunk) in bytes.chunks(8).enumerate() {
+        let block = u64::from_be_bytes(chunk.try_into().unwrap());
+        let dec = encrypt_block(block, &keys);
+        let out_bytes = dec.to_be_bytes();
 
-//
-    let      keys_1 : [u64;  16]= key_generator(key1);
- //  let  mut  keys_2 : [u64;  16]= key_generator(key2);
- //  keys_2.reverse();
-   let start= Instant::now();
-   let ciphertext = encrypt_loop(input, &keys_1, 131072);
-    let end = start.elapsed();
-   println!("Time: {:.6} s", end.as_secs_f64() );
-    println!("Ciphertext:  0x{:016X}", ciphertext);
+        if i == bytes.len() / 8 - 1 {
+            let pad = out_bytes[7] as usize;
+            out.write_all(&out_bytes[..8 - pad])?;
+        } else {
+            out.write_all(&out_bytes)?;
+        }
+    }
+    Ok(())
+}
+
+/* ===================== MAIN ===================== */
+
+fn main() -> io::Result<()> {
+    let key: u64 = 0xAABB09182736CCDD;
+
+    let input = Path::new("C:/Users/Lenovo ThinkBook/Desktop/rust_proj/src/test.txt");
+    let encrypted = Path::new("C:/Users/Lenovo ThinkBook/Desktop/rust_proj/src/result_hex.txt");
+    let decrypted = Path::new("C:/Users/Lenovo ThinkBook/Desktop/rust_proj/src/decrypt.txt");
 
 
-  //  let cipher = triple_des(input,&keys_1, &keys_2);
-    //keys_1.reverse();
-  //  keys_2.reverse();
+    let metadata = input.metadata()?;
+    println!("File size: {} bytes", metadata.len());
 
+     encrypt_file_hex(input, encrypted, key)?;
+    println!("Encrypted OK");
 
-   // let plaintext = triple_des(cipher,&keys_1, &keys_2);
+    decrypt_file_hex(encrypted, decrypted, key)?;
+    println!("Decrypted OK");
+  //  println!("?:",encrypt_block(0x7F16B882CBA336F8, keys.reverse()));
 
-  // keys.reverse();
-  // let plaintext = encrypt_loop(ciphertext, &keys, 128);
- //  println!("Plaintext: 0x{:016X}",plaintext);
- //   println!("{:016X}" , cipher );
-   //  println!("{:016X}" ,   plaintext); 
-  
+    Ok(())
 }
