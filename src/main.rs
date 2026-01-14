@@ -199,6 +199,8 @@ fn encrypt_file_hex(input: &Path, output: &Path, key: u64) -> io::Result<()> {
         let block_u64 = u64::from_be_bytes(block_bytes);
         let enc = encrypt(block_u64, &keys);
 
+
+        write!(output, "{:016X}", enc)?; 
         block_index += 1;
     }
 
@@ -206,9 +208,11 @@ fn encrypt_file_hex(input: &Path, output: &Path, key: u64) -> io::Result<()> {
 }
 
 fn decrypt_file_hex(input: &Path, output: &Path, key: u64) -> io::Result<()> {
+    // Generate DES keys and reverse for decryption
     let mut keys = key_generator(key);
     keys.reverse();
 
+    // Read the entire encrypted file (hex-encoded)
     let mut hex = String::new();
     File::open(input)?.read_to_string(&mut hex)?;
     let bytes = hex_to_bytes(&hex);
@@ -218,13 +222,15 @@ fn decrypt_file_hex(input: &Path, output: &Path, key: u64) -> io::Result<()> {
 
     for chunk in bytes.chunks(8) {
         let block_u64 = u64::from_be_bytes(chunk.try_into().unwrap());
-        let dec = encrypt(block_u64, &keys); 
+        let dec = encrypt(block_u64, &keys); // DES decryption (keys reversed)
         let mut dec_bytes = dec.to_be_bytes();
 
+        // Undo the block index XOR to recover original plaintext
         for i in 0..8 {
             dec_bytes[i] ^= (block_index >> (i*8)) as u8;
         }
 
+        // Remove padding on the last block
         if block_index == (bytes.len() / 8 - 1) as u64 {
             let pad = dec_bytes[7] as usize;
             out.write_all(&dec_bytes[..8 - pad])?;
@@ -237,7 +243,6 @@ fn decrypt_file_hex(input: &Path, output: &Path, key: u64) -> io::Result<()> {
 
     Ok(())
 }
-
 use std::time::{Duration, Instant};
 
 fn main() -> io::Result<()> {
