@@ -128,7 +128,7 @@ fn key_generator(key: u64) -> [u64; 16] {
     keys
 }
 
-
+/*
 
 
 fn encrypt(plaintext64:  u64, keys: &[u64; 16]) ->   u64
@@ -149,6 +149,38 @@ fn encrypt(plaintext64:  u64, keys: &[u64; 16]) ->   u64
     
      
 }
+*/
+fn encrypt_without_last_perm(plaintext64:  u64, keys: &[u64; 16]) -> u64
+{
+     
+    let (mut left32, mut right32)= split(plaintext64, 32);
+
+    for i in 0..16 {
+        let (l, r) = round(left32, right32, keys[i]);
+        left32 = l;
+        right32 = r;
+    }
+
+     (right32 as u64) << 32 | (left32 as u64)    
+     
+}
+
+fn triple_des(plaintext64: u64 , key1 : &[u64; 16], key2 :&[u64; 16] ) -> u64
+{    
+    let permuted=perm(plaintext64,&INITIAL_PERM, 64);
+
+    let   phase_1=encrypt_without_last_perm(permuted, key1); 
+   
+
+    let   phase_2=encrypt_without_last_perm(phase_1, key2); 
+
+    let   phase_3=encrypt_without_last_perm(phase_2, key1);
+
+
+    perm(phase_3,&FINAL_PERM, 64)
+
+
+} 
 
 
 fn hex_to_bytes(hex: &str) -> Vec<u8> {
@@ -157,28 +189,33 @@ fn hex_to_bytes(hex: &str) -> Vec<u8> {
         .map(|c| u8::from_str_radix(std::str::from_utf8(c).unwrap(), 16).unwrap())
         .collect()
 }
-fn encrypt_file_hex(input: &Path, output: &Path, key: u64) -> io::Result<()> {
+fn encrypt_file_hex(input: &Path, output: &Path, key: u64, inital_vector : u64) -> io::Result<()> {
+
     let keys = key_generator(key);
     let mut input = File::open(input)?;
-
     let mut output = File::create(output)?;
-
+    
     let mut buf = [0u8; 8];
-    let mut block_index: u64 = 0;  
 
+    let mut  xor;
+    let mut prev  = inital_vector;
     loop {
         let n = input.read(&mut buf)?;
 
+      
+        
         if n == 0 {
           
             let pad: u8 = 8;
-            let mut block_bytes = [pad; 8];
-            for i in 0..8 {
-                block_bytes[i] ^= (block_index >> (i*8)) as u8;
-            }
+            let  block_bytes = [pad; 8];
+            
             let block_u64 = u64::from_be_bytes(block_bytes);
-            let enc = encrypt(block_u64, &keys);
+            xor =   prev ^  block_u64;
+         //   let   enc = encrypt(xor, &keys);
+
+           let  enc = triple_des(xor, &keys, &keys);
             write!(output, "{:016X}", enc)?;
+            
             break;
         }
 
@@ -187,65 +224,56 @@ fn encrypt_file_hex(input: &Path, output: &Path, key: u64) -> io::Result<()> {
             for i in n..8 {
                 buf[i] = pad;
             }
+            
         }
-
-        
-        let mut block_bytes = buf;
-       
-        for i in 0..8 {
-            block_bytes[i] ^= (block_index >> (i*8)) as u8;
-        }
-
-        let block_u64 = u64::from_be_bytes(block_bytes);
-        let enc = encrypt(block_u64, &keys);
-
-
+        xor =  prev ^ u64::from_be_bytes(buf); 
+       // let   enc = encrypt(xor, &keys);
+       let   enc = triple_des(xor, &keys, &keys);
         write!(output, "{:016X}", enc)?; 
-        block_index += 1;
+
+
+        prev = enc;
+
     }
 
     Ok(())
 }
 
-fn decrypt_file_hex(input: &Path, output: &Path, key: u64) -> io::Result<()> {
-    // Generate DES keys and reverse for decryption
+fn decrypt_file_hex(input: &Path, output: &Path, key: u64,inital_vector : u64 ) -> io::Result<()> {
     let mut keys = key_generator(key);
-    keys.reverse();
+    keys.reverse(); 
 
-    // Read the entire encrypted file (hex-encoded)
     let mut hex = String::new();
     File::open(input)?.read_to_string(&mut hex)?;
     let bytes = hex_to_bytes(&hex);
-
     let mut out = File::create(output)?;
-    let mut block_index: u64 = 0;
+  //  let mut  input ;
+    let mut prev = inital_vector;
 
-    for chunk in bytes.chunks(8) {
-        let block_u64 = u64::from_be_bytes(chunk.try_into().unwrap());
-        let dec = encrypt(block_u64, &keys); // DES decryption (keys reversed)
-        let mut dec_bytes = dec.to_be_bytes();
+    for (i, chunk) in bytes.chunks(8).enumerate() {
 
-        // Undo the block index XOR to recover original plaintext
-        for i in 0..8 {
-            dec_bytes[i] ^= (block_index >> (i*8)) as u8;
-        }
+        let block = u64::from_be_bytes(chunk.try_into().unwrap());
+        let dec = triple_des(block, &keys, &keys); 
+       // let   dec = encrypt(block, &keys);
 
-        // Remove padding on the last block
-        if block_index == (bytes.len() / 8 - 1) as u64 {
-            let pad = dec_bytes[7] as usize;
-            out.write_all(&dec_bytes[..8 - pad])?;
+        let xor  = prev ^ dec;
+       
+        let out_bytes = xor.to_be_bytes();
+
+        if i == bytes.len() / 8 - 1 {
+            let pad = out_bytes[7] as usize;
+            let  last_block = &out_bytes[..8 - pad];
+            out.write_all(last_block)?;
         } else {
-            out.write_all(&dec_bytes)?;
+            out.write_all(&out_bytes)?;
         }
-
-        block_index += 1;
+       prev = block; 
     }
-
     Ok(())
 }
-use std::time::{Duration, Instant};
 
-fn main() -> io::Result<()> {
+fn main() -> io::Result<()> 
+{
     let key: u64 = 0xAABB09182736CCDD;
 
     let input = Path::new("sample.rs");
@@ -256,13 +284,17 @@ fn main() -> io::Result<()> {
     let metadata = input.metadata()?;
     println!("File size: {} bytes", metadata.len());
 
-     encrypt_file_hex(input, encrypted, key)?;
+    encrypt_file_hex(input, encrypted, key, key)?;
     println!("Encrypted OK");
 
-    decrypt_file_hex(encrypted, decrypted, key)?;
+    decrypt_file_hex(encrypted, decrypted, key, key)?;
     println!("Decrypted OK");
-  //  println!("?:",encrypt_block(0x7F16B882CBA336F8, keys.reverse()));
-
+     
+  // let mut buf = String::new();    
+  // File::open(decrypted)?.read_to_string(&mut buf)?;   
+  // assert_eq!(input, decrypted,"failed" );
+ 
     Ok(())
+
 }
  
