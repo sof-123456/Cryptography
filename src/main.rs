@@ -31,7 +31,7 @@ fn rev_shift_rows (input: [[u8; 4]; 4]) -> [[u8; 4]; 4]
 {
     let mut result = [[0u8; 4]; 4];
      for i in 0..4 {
-        for j in (0..4) {
+        for j in 0..4 {
             result[i][j] = input[i][( j+4-i) % 4]; 
         }
     }
@@ -57,8 +57,8 @@ fn sub_bytes(sub :[[u8; 16]; 16], input: [[u8;4]; 4]) -> [[u8; 4]; 4 ]
  
     }
 
-/* 
-fn dot_prod(a: u16, b: u16) -> u16
+
+fn dot_prod_mod(a: u16, b: u16) -> u8
 {
 
     let mut  sum = 0u16;
@@ -71,11 +71,19 @@ fn dot_prod(a: u16, b: u16) -> u16
          sum ^= a << i ;
          
       }
+  for i in (8..16).rev()
+  {
+      if (sum >> i ) & 1 ==1
+      {
+        sum ^= (MOD as u16) << (i -8);
+      }
+  }
 
-   }
-          modul(sum as u16) as u16 
+ 
+  }
+   sum as u8
 }
-
+/* 
 fn modul (input: u16) -> u8
 {    
  
@@ -88,16 +96,16 @@ fn modul (input: u16) -> u8
     
 
 }
- 
+ */
  fn mix_columns(input: [[u8; 4]; 4], matrix: [[u8; 4]; 4])-> [[u8;4];4]
  { 
     let mut  result = [[0u8; 4]; 4];
     
-     for i in 0..4
+     for col in 0..4
      {
 
         let  mut  item ;
-        for k in 0..4
+        for  row in 0..4
         {
                  
                     item =0;
@@ -105,17 +113,14 @@ fn modul (input: u16) -> u8
                     {
 
 
-                    let a = matrix[k][j] as u16;  
-                    let b = input[j][i] as u16;
-                    let prod = dot_prod(b, a);
+                    let a = matrix[row][j] as u16;  
+                    let b = input[j][col] as u16;
+                    let prod = dot_prod_mod(b, a);
+                    item ^= prod;
 
-                    let  modul = modul(prod);
-                //     print!("{:02x} ", modul);
 
-                    item ^= modul;
                   }  
-                 result[k][i]= item;
-            //    print!("{:02x} ", result[i][k]);
+                 result[row][col]= item;
  
          }
      }
@@ -124,7 +129,7 @@ fn modul (input: u16) -> u8
  }  
 
 
- */ 
+ /*  
 fn gf_mul(mut a: u8, mut b: u8) -> u8 {
     let mut res: u8 = 0;
 
@@ -161,13 +166,10 @@ fn mix_columns(input: [[u8; 4]; 4], matrix: [[u8; 4]; 4]) -> [[u8; 4]; 4] {
 
     result
 }
-
+*/
 fn   aes_encrypt (input: [[u8; 4]; 4], rounds_keys: [[[u8; 4]; 4];11], nr: usize) -> [[u8;4];4]
 {
      let  mut  enc= input ;
-
- 
-    
 
     for i  in 0..nr
     {
@@ -179,13 +181,7 @@ fn   aes_encrypt (input: [[u8; 4]; 4], rounds_keys: [[[u8; 4]; 4];11], nr: usize
            shifted  = mix_columns(shifted, MIX_COLUMNS_MATRIX);
             
         }
-
-       
          enc = shifted;
-
-
-    
-
     }
     
    let r = add_round_key(enc, rounds_keys[10]);
@@ -201,12 +197,12 @@ fn aes_decrypt (input: [[u8; 4]; 4], rounds_keys: [[[u8; 4]; 4];11], nr: usize) 
      dec = add_round_key(dec, rounds_keys[nr]);
 
 
- let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true) // clear file at start
-        .open("ciphertext.txt")
-        .expect("Unable to open file");
+//  let mut file = OpenOptions::new()
+//         .create(true)
+//         .write(true)
+//         .truncate(true) // clear file at start
+//         .open("ciphertext.txt")
+//         .expect("Unable to open file");
     
      for i  in (0..nr).rev()
      {
@@ -218,26 +214,18 @@ fn aes_decrypt (input: [[u8; 4]; 4], rounds_keys: [[[u8; 4]; 4];11], nr: usize) 
            rev_added = mix_columns( rev_added, INV_MIX_COLUMNS_MATRIX);
         }
       dec = rev_added;
-       writeln!(file, "Round {}:", i+1).unwrap();
-        for row in &rev_added {
-            for byte in row {
-                write!(file, "{:02x} ", byte).unwrap();
-            }
-            writeln!(file).unwrap();
-        }
-        writeln!(file).unwrap();
+    //    writeln!(file, "Round {}:", i+1).unwrap();
+    //     for row in &rev_added {
+    //         for byte in row {
+    //             write!(file, "{:02x} ", byte).unwrap();
+    //         }
+    //         writeln!(file).unwrap();
+    //     }
+    //     writeln!(file).unwrap();
     
-     }
-      writeln!(file, "Roundhh  final:").unwrap();
-        for row in &dec {
-            for byte in row {
-                write!(file, "{:02x} ", byte).unwrap();
-            }
-            writeln!(file).unwrap();
-        }
-        writeln!(file).unwrap();
-     dec
-    
+    // 
+    }  
+    dec
 }    
 use std::io::Write;
 
@@ -260,15 +248,16 @@ fn main() {
     ];
 
     let i = [[0x4b, 0x2c, 0x33, 0x37], 
-[0x86, 0x4a, 0x9d, 0xd2], 
-[0x8d, 0x89, 0xf4, 0x18], 
-[0x6d, 0x80, 0xe8, 0xd8]];
+                            [0x86, 0x4a, 0x9d, 0xd2], 
+                            [0x8d, 0x89, 0xf4, 0x18], 
+                            [0x6d, 0x80, 0xe8, 0xd8]];
 
 
- let j = [[0x6d, 0x11, 0xdb, 0xca], 
-[0x88, 0x0b, 0xf9, 0x00], 
-[0xa3, 0x3e, 0x86, 0x93], 
-[0x7a, 0xfd, 0x41, 0xfd],];
+
+//  let j = [[0x6d, 0x11, 0xdb, 0xca], 
+// [0x88, 0x0b, 0xf9, 0x00], 
+// [0xa3, 0x3e, 0x86, 0x93], 
+// [0x7a, 0xfd, 0x41, 0xfd],];
 //let m = mix_columns(i,MIX_COLUMNS_MATRIX);
 let result = aes_encrypt(input, ROUND_KEYS, 10);
 
@@ -293,14 +282,6 @@ let decrypted = aes_decrypt(result, ROUND_KEYS, 10);
   //println!("After MixColumns: {:02x}", mixed[0][1]);
   //  println!("After MixColumns: {:02x}", mixed[0][0]);
 
-
-
- for i in 0..4 {
-        for j in 0..4 {
-            print!("{:02x} ", result[i][j]);
-        }
-        println!();
-    }
 }
 
 
