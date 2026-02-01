@@ -1,8 +1,8 @@
 mod rounds_keys;
 use rounds_keys::ROUND_KEYS ;
 
-mod matrx;
-use matrx::{S_BOX,  MIX_COLUMNS_MATRIX,MOD, INV_MIX_COLUMNS_MATRIX, INV_S_BOX};
+mod matrix;
+use matrix::{S_BOX,  MIX_COLUMNS_MATRIX,MOD, INV_MIX_COLUMNS_MATRIX, INV_S_BOX};
 use std::fs::OpenOptions;
 
 
@@ -83,20 +83,6 @@ fn dot_prod_mod(a: u16, b: u16) -> u8
   }
    sum as u8
 }
-/* 
-fn modul (input: u16) -> u8
-{    
- 
-    if (input >>8 ) &1==1
-    {
-          return (input ^ (MOD as u16))as u8;
-    }
-    
-        return input as u8  ; 
-    
-
-}
- */
  fn mix_columns(input: [[u8; 4]; 4], matrix: [[u8; 4]; 4])-> [[u8;4];4]
  { 
     let mut  result = [[0u8; 4]; 4];
@@ -129,54 +115,18 @@ fn modul (input: u16) -> u8
  }  
 
 
- /*  
-fn gf_mul(mut a: u8, mut b: u8) -> u8 {
-    let mut res: u8 = 0;
-
-    for _ in 0..8 {
-        if (b & 1) == 1 {
-            res ^= a;
-        }
-
-        let hi = a & 0x80;
-        a <<= 1;
-
-        // reduction by AES irreducible polynomial x^8 + x^4 + x^3 + x + 1 (0x11b)
-        if hi != 0 {
-            a ^= 0x1b;
-        }
-
-        b >>= 1;
-    }
-
-    res
-}
-fn mix_columns(input: [[u8; 4]; 4], matrix: [[u8; 4]; 4]) -> [[u8; 4]; 4] {
-    let mut result = [[0u8; 4]; 4];
-
-    for col in 0..4 {
-        for row in 0..4 {
-            let mut val = 0u8;
-            for k in 0..4 {
-                val ^= gf_mul(matrix[row][k], input[k][col]);
-            }
-            result[row][col] = val;
-        }
-    }
-
-    result
-}
-*/
-fn   aes_encrypt (input: [[u8; 4]; 4], rounds_keys: [[[u8; 4]; 4];11], nr: usize) -> [[u8;4];4]
+fn   aes_encrypt (input: [[u8; 4]; 4], rounds_keys: [[[u8; 4];4 ];11], nr: usize) -> [[u8;4];4]
 {
      let  mut  enc= input ;
+     
+     
+    for  round   in 0..nr
+    {   
 
-    for i  in 0..nr
-    {
-        let added = add_round_key(enc, rounds_keys[i]);
+        let added = add_round_key(enc, rounds_keys[round]);
         let sub = sub_bytes(S_BOX,  added);
         let  mut shifted = shift_rows(sub);
-        if  i !=  nr -1
+        if   round !=  nr -1
         {
            shifted  = mix_columns(shifted, MIX_COLUMNS_MATRIX);
             
@@ -184,13 +134,13 @@ fn   aes_encrypt (input: [[u8; 4]; 4], rounds_keys: [[[u8; 4]; 4];11], nr: usize
          enc = shifted;
     }
     
-   let r = add_round_key(enc, rounds_keys[10]);
+   let r = add_round_key(enc, (rounds_keys[nr]));
   
    r
 }
     
     
-fn aes_decrypt (input: [[u8; 4]; 4], rounds_keys: [[[u8; 4]; 4];11], nr: usize) -> [[u8;4];4]
+fn aes_decrypt (input: [[u8; 4]; 4], rounds_keys: [[[u8; 4];4 ];11], nr: usize) -> [[u8;4];4]
 {
      let mut dec = input ;
 
@@ -228,6 +178,112 @@ fn aes_decrypt (input: [[u8; 4]; 4], rounds_keys: [[[u8; 4]; 4];11], nr: usize) 
     dec
 }    
 use std::io::Write;
+use std::{rc, result};
+
+
+fn  left_rot (input:   u32) -> u32
+{
+     let mut result = input;
+     result = (result << 8) | (result >> 24);
+     result
+}
+
+
+
+ fn g ( round :usize , input : u32 , rcon: [[u8; 4];11]) -> u32
+ {
+
+     let mut result =  0u32;
+     let rot: u32 = left_rot(input);
+     for i in (0..4).rev()
+     { 
+         let row = (rot >> (i*8 + 4)) as usize & 0xF;
+         let col = (rot >> (i*8)) as usize & 0xF;
+         result |= (S_BOX[row][col] as u32) << (i*8);
+     }
+     result ^= (rcon[round][0] as u32) << 24 ;
+      result
+ }
+
+ fn   key_expansion(key : [u32; 4] , rounds : usize)  -> [[u32;4]; 11]{
+      let mut  result = [[0u32;4]; 11];
+      let mut  temp : [u32;4] = key;
+      result[0] = key;
+
+
+      let rcon = rcon_gen(10);
+
+      for round in   1..=rounds
+        {
+                let  g_word   = g(round , temp[3], rcon);
+
+
+                 result[round][0]= temp[0] ^ g_word;
+
+                for i in 1..4
+                {
+                    
+                
+                        result[round][i] = result[round][i-1] ^  temp[i];
+                
+                }   
+
+                temp = result[round];
+            }            
+                
+            result
+        }
+
+fn rcon_gen(rounds: usize) -> [[u8; 4]; 11]
+{
+   let mut result = [[0u8; 4]; 11];
+    result[0] = [0x00, 0x00, 0x00, 0x00];
+    result[01] = [0x01, 0x00, 0x00, 0x00];
+
+    for  i in   2..rounds+1 
+    {
+        result[i][0] = dot_prod_mod(result[i-1][0] as u16 , 0x02);
+        result[i][1] = 0x00;
+        result[i][2] = 0x00;
+        result[i][3] = 0x00;
+    }
+    result
+
+}
+
+
+fn key_bytes_to_word(key: [[u8; 4]; 4]) -> [u32; 4] {
+     
+     let mut result = [0u32; 4];
+     for   col in 0..4 
+     {
+        result[col]= (key[0][col] as u32) << 24 |
+                   (key[1][col] as u32) << 16 |
+                   (key[2][col] as u32) << 8  |
+                   (key[3][col] as u32);
+    
+     }
+
+  result
+
+
+}
+fn key_word_to_bytes(word: [u32; 4]) -> [[u8; 4]; 4]  
+    {
+       let  mut result = [[0u8; 4]; 4];
+       for  col  in 0..4
+       {
+           result [0][col]= (word [col] >> 24) as u8;
+           result [1][col]= (word [col] >> 16) as u8;
+           result [2][col]= (word [col] >> 8) as u8;
+           result [3][col]= word [col] as u8;   
+       }
+
+
+       result
+
+    }
+
 
 fn main() {
    
@@ -241,30 +297,35 @@ fn main() {
    
 
     let key: [[u8; 4]; 4] = [
-        [0xf2, 0x7a, 0x59, 0x73],
-        [0xc2, 0x96, 0x35, 0x59],
-        [0x95, 0xb9, 0x80, 0xf6],
-        [0xf2, 0x43, 0x7a, 0x7f]
+        [0x2b, 0x28, 0xab, 0x09],
+        [0x7e, 0xae, 0xf7, 0xcf],
+        [0x15, 0xd2, 0x15, 0x4f],
+        [0x16, 0xa6, 0x88, 0x3c],
     ];
 
-    let i = [[0x4b, 0x2c, 0x33, 0x37], 
-                            [0x86, 0x4a, 0x9d, 0xd2], 
-                            [0x8d, 0x89, 0xf4, 0x18], 
-                            [0x6d, 0x80, 0xe8, 0xd8]];
-
-
+     let rounds_keys=  key_expansion(key_bytes_to_word(key), 10);
+     let  mut keys  = [[[0u8;4];4];11];
+     for i in 0..11
+     {
+        keys[i] = key_word_to_bytes(rounds_keys[i]);
+     }
 
 //  let j = [[0x6d, 0x11, 0xdb, 0xca], 
 // [0x88, 0x0b, 0xf9, 0x00], 
 // [0xa3, 0x3e, 0x86, 0x93], 
 // [0x7a, 0xfd, 0x41, 0xfd],];
 //let m = mix_columns(i,MIX_COLUMNS_MATRIX);
-let result = aes_encrypt(input, ROUND_KEYS, 10);
+let  encrypted = aes_encrypt(input,keys , 10);
 
 
-let decrypted = aes_decrypt(result, ROUND_KEYS, 10);
+let decrypted = aes_decrypt(encrypted, keys, 10);
 
-
+for row in &decrypted {
+    for byte in row {
+        print!("{:02x} ", byte);
+    }
+    println!();
+}
  //   let added = add_round_key(i, j);
   //  println!("After AddRoundKey: {:02x}", added[1][1]);
   // let sub = sub_bytes(S_BOX,  added);
@@ -281,6 +342,7 @@ let decrypted = aes_decrypt(result, ROUND_KEYS, 10);
   //  println!("After SubBytes: {:02x}", modul(dot2) );
   //println!("After MixColumns: {:02x}", mixed[0][1]);
   //  println!("After MixColumns: {:02x}", mixed[0][0]);
+  
 
 }
 
