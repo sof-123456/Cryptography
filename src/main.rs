@@ -4,27 +4,24 @@ use matrix::{S_BOX,  MIX_COLUMNS_MATRIX,MOD, INV_MIX_COLUMNS_MATRIX, INV_S_BOX};
 use std::fs::OpenOptions;
 
 
-fn add_round_key(input: [[u8; 4]; 4], key: [[u8; 4]; 4]) -> [[u8; 4]; 4] {
-    let mut result = [[0u8; 4]; 4]; 
+fn add_round_key(input: [u32; 4], key: [u32; 4]) -> [u32; 4] {
+    let mut result = [0u32; 4]; 
     for i in 0..4 {
-        for j in 0..4 {
-            result[i][j] = input[i][j] ^ key[i][j]; 
-        }
+        result[i] = input[i] ^ key[i]; 
     }
     result
 }
 
-fn shift_rows (input: [[u8; 4]; 4]) -> [[u8; 4]; 4]
+fn shift_rows (input: [u32; 4]) -> [u32; 4]
 {
-    let mut result = [[0u8; 4]; 4];
+    let mut result = [0u32; 4];
      for i in 0..4 {
-        for j in 0..4 {
-            result[i][j] = input[i][(j + i) % 4]; 
-        }
+            result[i] = input[i]<<8*i  | input[i] >> (32 - 8*i); 
+        
     }
     result
 }
-
+/* 
 fn rev_shift_rows (input: [[u8; 4]; 4]) -> [[u8; 4]; 4]
 {
     let mut result = [[0u8; 4]; 4];
@@ -36,20 +33,25 @@ fn rev_shift_rows (input: [[u8; 4]; 4]) -> [[u8; 4]; 4]
     result
 }
 
+*/
 
-fn sub_bytes(sub :[[u8; 16]; 16], input: [[u8;4]; 4]) -> [[u8; 4]; 4 ] 
+fn sub_bytes(sub :[[u8; 16]; 16], input: [u32; 4]) -> [u32; 4] 
     {
-      let mut  result = [[0u8; 4]; 4];
-
+      let mut  result = [0u32; 4];
+      let mut tmp=0;
        for i in 0..4
         {
         for j in 0..4 
         {
-                let  row = input[i][j] >> 4;
-                let col = input[i][j] & 0x0F;
+                let  row = (input[i] >> (8*j + 4)) & 0x0F;
+                let  col = (input[i] >> (8*j)) & 0x0F;
 
-               result [i][j] = sub[row as usize][col as usize];
+                tmp |= (sub[row as usize][col as usize] as u32) << (8*j);
+
         }
+        result[i] = tmp;
+        tmp=0;
+
        }
        return result;
  
@@ -82,9 +84,9 @@ fn dot_prod_mod(a: u16, b: u16) -> u8
    sum as u8
 }
 
- fn mix_columns(input: [[u8; 4]; 4], matrix: [[u8; 4]; 4])-> [[u8;4];4]
+ fn mix_columns(input: [u32; 4], matrix: [[u8; 4]; 4])-> [u32;4]
  { 
-    let mut  result = [[0u8; 4]; 4];
+    let mut  result = [0u32; 4];
     
      for col in 0..4
      {
@@ -113,7 +115,7 @@ fn dot_prod_mod(a: u16, b: u16) -> u8
     return result;
  }  
 
-
+/* 
 fn   aes_encrypt (input: [[u8; 4]; 4], rounds_keys: &Vec<[[u8; 4];4]>, nr: usize) -> [[u8;4];4]
 {
      let  mut  enc= input ;
@@ -153,7 +155,7 @@ fn aes_decrypt (input: [[u8; 4]; 4], rounds_keys: &Vec<[[u8; 4];4 ]>, nr: usize)
     
      for i  in (0..nr).rev()
      {
-        let   rev_shifted = rev_shift_rows(dec);
+        let   rev_shifted = rev_shift_rows(dec); 
         let  rev_sub = sub_bytes(INV_S_BOX,  rev_shifted);
         let  mut  rev_added = add_round_key(rev_sub, rounds_keys[i]);
         if i != 0
@@ -333,6 +335,7 @@ fn  loop_decrypt(input: [[u8; 4]; 4] ,  keys : &Vec<[[u8;4 ];4 ]>, nr : usize, b
    decrypted
 
 } 
+*/
  use std::io::Write;
 
 
@@ -341,36 +344,53 @@ fn  loop_decrypt(input: [[u8; 4]; 4] ,  keys : &Vec<[[u8;4 ];4 ]>, nr : usize, b
 
 fn main() {
    
-    let input: [[u8; 4]; 4] = [
-        [0x32, 0x88, 0x31, 0xe0], 
-        [0x43, 0x5a, 0x31, 0x37], 
-        [0xf6, 0x30, 0x98, 0x07], 
-        [0xa8, 0x8d, 0xa2, 0x34],
-    ];
-
-    let key: [u8;  16] = [
+   // let input: [[u8; 4]; 4] = [
+   //     [0x32, 0x88, 0x31, 0xe0], 
+   //     [0x43, 0x5a, 0x31, 0x37], 
+   //     [0xf6, 0x30, 0x98, 0x07], 
+   //     [0xa8, 0x8d, 0xa2, 0x34],
+   // ];
+   let input: [u32; 4] = [0x328831e0,  0x435a3137,  0xf6309807,  0xa88da234];
+   /* 
+   let key: [u8;  16] = [
         0x2b, 0x28, 0xab, 0x09,
-        0x7e, 0xae, 0xf7, 0xcf,
+         0x7e
+        , 0xae, 0xf7, 0xcf,
         0x15, 0xd2, 0x15, 0x4f,
-        0x16, 0xa6, 0x88, 0x3c,
-        
-
+        0x16, 0xa6, 0x88, 0x3c,       
     ];
+*/
 
- 
- let nr = aes_rounds(key.len());   
+    let key =  [ 0x2b28ab09, 0x7eaef7cf, 0x15d2154f, 0x16a6883c];
 
- let keys =  keys_generation (&key);
+let  add = add_round_key(input, key);
+ let sub = sub_bytes(S_BOX, add);
+ let shifted = shift_rows(sub);
+for val in shifted.iter() {
+    print!("{:08x} ", val);
+}
+println!();  
+//let nr = aes_rounds(key.len());   
+//
+//let keys =  keys_generation (&key);
+//
+//
+//let start =   Instant::now();
+//
+//let  encrypted = loop_encrypt(input,  &keys , nr, 65536 );
+
+//let mut blocks = vec![input; 65536];
+//
+//for block in &mut blocks {
+//    *block = aes_encrypt(*block, &keys, nr);
+//}
+// let duration = start.elapsed();
 
 
- let start =   Instant::now();
 
- let  encrypted = loop_encrypt(input,  &keys , nr, 65536 );
- let duration = start.elapsed();
+// println!("Encryption took: {:?} ", duration);
 
- println!("Encryption took: {:?} ", duration);
-
- let decrypted = loop_decrypt(encrypted, &keys, nr,65536 );
+// let decrypted = loop_decrypt(encrypted, &keys, nr,65536 );
 
 
 
@@ -393,12 +413,12 @@ fn main() {
     // writeln!(file).unwrap();
 
 
-    for row in &decrypted {
-        for byte in row {
-            print!("{:02x} ", byte);
-        }
-       println!();
-    }
+  //  for row in &decrypted {
+  //      for byte in row {
+  //          print!("{:02x} ", byte);
+  //      }
+  //     println!();
+  //  }
 
 }
 

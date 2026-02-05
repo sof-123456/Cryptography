@@ -53,18 +53,3 @@ pub const INV_MIX_COLUMNS_MATRIX: [[u8; 4]; 4] = [
 ];
 
 
-
-pub const RCON: [u8; 11] = [
-    0x00,
-    0x01,
-    0x02,
-    0x04,
-    0x08,
-    0x10,
-    0x20,
-    0x40,
-    0x80,
-    0x1B,
-    0x36,
-];
-
