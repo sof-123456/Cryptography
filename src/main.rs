@@ -1,7 +1,9 @@
 
 mod matrix;
-use matrix::{S_BOX,  MIX_COLUMNS_MATRIX,MOD, INV_MIX_COLUMNS_MATRIX, INV_S_BOX};
+use matrix::{S_BOX,  MIX_COLUMNS_MATRIX,MOD, INV_MIX_COLUMNS_MATRIX, INV_S_BOX, };
 use std::fs::OpenOptions;
+
+mod rounds_keys;
 
 
 fn add_round_key(input: [u32; 4], key: [u32; 4]) -> [u32; 4] {
@@ -22,19 +24,17 @@ fn shift_rows (input: [u32; 4]) -> [u32; 4]
     }
     result
 }
-/* 
-fn rev_shift_rows (input: [[u8; 4]; 4]) -> [[u8; 4]; 4]
+
+fn rev_shift_rows (input: [u32; 4]) -> [u32; 4]
 {
-    let mut result = [[0u8; 4]; 4];
+    let mut result = [0u32; 4];
      for i in 0..4 {
-        for j in 0..4 {
-            result[i][j] = input[i][( j+4-i) % 4]; 
-        }
+        result[i] = (input[i] >> (8*i)) | (input[i] << (32 - 8*i));
     }
     result
 }
+     
 
-*/
 
 fn sub_bytes(sub :[[u8; 16]; 16], input: [u32; 4]) -> [u32; 4] 
     {
@@ -57,9 +57,6 @@ fn sub_bytes(sub :[[u8; 16]; 16], input: [u32; 4]) -> [u32; 4]
        return result;
  
     }
-/* 
-
-
 
 
 fn dot_prod_mod(a: u16, b: u16) -> u8
@@ -87,77 +84,31 @@ fn dot_prod_mod(a: u16, b: u16) -> u8
   }
    sum as u8
 }
-   */
-
-fn dot_prod_mod(a: u16, b: u16) -> u8 {
-    let mut sum: u16 = 0;
-
-    for i in 0..8 {
-        if (b >> i) & 1 == 1 {
-            sum ^= a << i;
-        }
-    }
-
-    for i in (8..16).rev() {
-        if (sum >> i) & 1 == 1 {
-            sum ^= (MOD as u16) << (i - 8);
-        }
-    }
-
-    sum as u8
-}
 
 
-fn mix_columns(input: [u32; 4], matrix: [[u8; 4]; 4]) -> [u32; 4] {
-    let mut result = [0u32; 4];
-
-    // each matrix row produces one output word
-    for i in 0..4 {
-        let mut out_word: u32 = 0;
-
-        // each byte position inside the word
-        for k in 0..4 {
-            let mut acc: u8 = 0;
-
-            // dot product: matrix row × input column bytes
-            for j in 0..4 {
-                let shift = 8 * (3 - k);
-                let byte = ((input[j] >> shift) & 0xFF) as u16;
-
-                acc ^= dot_prod_mod(matrix[i][j] as u16, byte);
-            }
-
-            out_word |= (acc as u32) << (8 * (3 - k));
-        }
-
-        result[i] = out_word;
-    }
-
-    result
-}
-
-/* 
- fn mix_columns(input: [u32; 4], matrix: [[u8; 4]; 4])-> [u32;4]
+fn mix_columns(input: [u32; 4], matrix: [[u8; 4]; 4])-> [u32;4]
  { 
-    let mut  result = [0u32; 4];
+    let mut  result = [1u32; 4];
     
-     for  i  in 0..4
+     for  i  in 0..4   
      {
         let mut  r =0;
         
-        for  row  in 0..4
-        { 
-            let mut item = 1u8;
 
-            for  k in 0..4
+        for  col   in 0..4
+
+        { 
+            let mut item = 0u8;
+
+            for  row in 0..4
             {
-                let mask = 8 * (3 - k);
+                let mask = 8 * (3 - col);
                 let  shift = ((input[row] >> mask) & 0xFF) as u16; 
                 item ^= dot_prod_mod(matrix[i][row] as u16, shift as u16);
-            
             }
               
-            r |= (item as u32) << (8 * (3 - row) );
+              r |= (item as u32) << (8 * (3 - col) );
+
         }
                 result [i]= r;
          
@@ -165,13 +116,12 @@ fn mix_columns(input: [u32; 4], matrix: [[u8; 4]; 4]) -> [u32; 4] {
 
     return result;
  }  
-*/
-/* 
-fn   aes_encrypt (input: [[u8; 4]; 4], rounds_keys: &Vec<[[u8; 4];4]>, nr: usize) -> [[u8;4];4]
+
+        
+fn   encrypt (input: [u32; 4], rounds_keys:&Vec<[u32; 4]> , nr: usize) -> [u32;4]
 {
-     let  mut  enc= input ;
-     
-  
+     let  mut  enc = input ;
+    
 
     for  round   in 0..nr
     {   
@@ -193,15 +143,24 @@ fn   aes_encrypt (input: [[u8; 4]; 4], rounds_keys: &Vec<[[u8; 4];4]>, nr: usize
   
    r
 }
-    
-    
-fn aes_decrypt (input: [[u8; 4]; 4], rounds_keys: &Vec<[[u8; 4];4 ]>, nr: usize) -> [[u8;4];4]
+   
+fn aes_encrypt(input: [u32; 4], rounds_keys:&Vec<[u32; 4]>) -> [u32; 4]
+{ let mut nr;
+
+    match rounds_keys.len() {
+        11 => nr = 10, // AES-128
+        13 => nr = 12, // AES-192
+        15 => nr = 14, // AES-256
+        _ => panic!("Invalid number of round keys"),
+    }
+    encrypt(input, rounds_keys, nr)
+}
+
+fn   decrypt (input: [u32; 4],rounds_keys:&Vec<[u32; 4]>, nr: usize) ->[u32;4]
 {
      let mut dec = input ;
 
      dec = add_round_key(dec, rounds_keys[nr]);
-
-
     
     
      for i  in (0..nr).rev()
@@ -219,6 +178,18 @@ fn aes_decrypt (input: [[u8; 4]; 4], rounds_keys: &Vec<[[u8; 4];4 ]>, nr: usize)
     }  
     dec
 }    
+
+fn aes_decrypt(input: [u32; 4], rounds_keys:&Vec<[u32; 4]>) -> [u32; 4]
+{ let mut nr;
+
+    match rounds_keys.len() {
+        11 => nr = 10, // AES-128
+        13 => nr = 12, // AES-192
+        15 => nr = 14, // AES-256
+        _ => panic!("Invalid number of round keys"),
+    }
+    decrypt(input, rounds_keys, nr)
+}
 
 fn  left_rot (input:   u32) -> u32
 {
@@ -243,9 +214,11 @@ fn  left_rot (input:   u32) -> u32
       result
  }
 
- fn   key_expansion(key : Vec<u32> , rounds : usize )  -> Vec<u32>{
+
+
+ fn   key_expansion(key : &[u32] , rounds : usize )  -> Vec<u32>{
     let word_count = 4 * (rounds + 1);
-    let nk  =  key.len()  ; 
+    let nk  =  key.len() ; 
     let mut result = vec![0u32; word_count];
 
      for i in 0 .. nk 
@@ -277,7 +250,6 @@ fn  left_rot (input:   u32) -> u32
             result
         }
 
-
 fn rcon_gen(rounds: usize) -> Vec<u8>
 
 {
@@ -294,43 +266,40 @@ fn rcon_gen(rounds: usize) -> Vec<u8>
 
 }
 
+fn keys_generation(key: &[u32]) -> Vec<[u32; 4]> {
+    let nr = match key.len() {
+        4 => 10,
+        6 => 12,
+        8 => 14,
+        _ => panic!("Invalid AES key size"),
+    };
 
-
-fn key_bytes_to_word(key: &[u8]) -> Vec<u32> {
-     
-     let  nk = key.len() / 4 ;
-     let mut result = Vec::with_capacity(nk);
-     for   i in 0..nk
-     {
-        result.push (
-                   
-                   (key[i] as u32)  << 24 |
-                   (key[i+4*1] as u32) << 16 |
-                   (key[i+4*2] as u32) << 8  |
-                   (key[i+4*3] as u32) 
-        );
-    
-     }
-
-  result
+    words_to_round_matrices(key_expansion(key, nr))
 }
 
 
-fn words_to_round_matrices(input : Vec<u32> ) -> Vec<[[u8; 4]; 4]>
+
+
+fn words_to_round_matrices(input : Vec<u32> ) -> Vec<[u32; 4]>
 {
       let   rounds  = input.len() / 4  ;
       let mut  result = Vec::with_capacity(rounds);
 
-      for i in 0..rounds
+ for i in 0..rounds   
+
       {
-          let mut matrix = [[0u8; 4];4];
-          for  col  in 0 .. 4
+          let mut matrix = [0u32;4];
+    for   row  in 0 .. 4
+
           {
-             let word = input[i*4 + col]; 
-             matrix[0][col] =(word >> 24) as u8;
-             matrix[1][col] =(word >> 16 )as u8;
-             matrix[2][col] =(word >> 8) as u8;
-             matrix[3][col] = word  as u8   ;
+              
+             matrix[row] = 
+              (((input[4  *i ] >>  (8*(3-row)))  & 0xFF) <<  24)
+             | (((input[4  *i+1] >>(8*(3-row)))  & 0xFF ) << 16)
+             | (((input[4  *i+2] >>  (8*(3-row)))   & 0xFF) << 8)
+             | (((input[4  *i+3] >> (8*(3-row)))  &  0xFF) )
+             ;   
+
           }
           
          result.push(matrix );
@@ -338,129 +307,82 @@ fn words_to_round_matrices(input : Vec<u32> ) -> Vec<[[u8; 4]; 4]>
       } 
        
        result 
-
-
-}
-
-fn aes_rounds(key_len_size : usize) -> usize
-{
-   match key_len_size
-   {
-        16 => 10, 
-        24 => 12, 
-        32 => 14,
-        _ =>   panic!("Invalid AES key length"), 
-   }
-        
 }
 
 
-
-fn keys_generation(key : &[u8])->   Vec<[[u8; 4]; 4]>
-{
-
-   words_to_round_matrices(key_expansion(key_bytes_to_word(&key), key.len() ))
-
-}
-
-fn  loop_encrypt(input: [[u8; 4]; 4] ,  keys : &Vec<[[u8;4 ];4 ]>, nr : usize, block_count : usize) ->  [[u8; 4]; 4]
+fn  loop_encrypt(input: [u32;4] ,  keys:&Vec<[u32; 4]>, block_count : usize) ->  [u32;4]
 {
     let mut encrypted = input ;  
     for i in   0.. block_count
     {
-        encrypted =  aes_encrypt(encrypted , &keys, nr );
+        encrypted =  aes_encrypt(encrypted , &keys); 
         
     }
    encrypted
 
 }
 
-fn  loop_decrypt(input: [[u8; 4]; 4] ,  keys : &Vec<[[u8;4 ];4 ]>, nr : usize, block_count : usize) ->  [[u8; 4]; 4]
+fn  loop_decrypt(input: [u32;4] ,  keys : &Vec<[u32; 4]>, block_count : usize) ->  [u32;4]
 {
     let mut decrypted = input ;  
     for i in   0.. block_count
     {
-        decrypted =  aes_decrypt(decrypted , &keys, nr );
+        decrypted =  aes_decrypt(decrypted , &keys );
         
     }
    decrypted
 
 } 
-*/
+
  use std::io::Write;
 
 
- use std::os::windows::process;
+use std::mem::swap;
 use std::time::Instant;
 
 
 fn main() {
    
-   // let input: [[u8; 4]; 4] = [
-   //     [0x32, 0x88, 0x31, 0xe0], 
-   //     [0x43, 0x5a, 0x31, 0x37], 
-   //     [0xf6, 0x30, 0x98, 0x07], 
-   //     [0xa8, 0x8d, 0xa2, 0x34],
-   // ];
-   let input: [u32; 4] = [0x328831e0,  0x435a3137,  0xf6309807,  0xa88da234];
-   /* 
-   let key: [u8;  16] = [
-        0x2b, 0x28, 0xab, 0x09,
-         0x7e
-        , 0xae, 0xf7, 0xcf,
-        0x15, 0xd2, 0x15, 0x4f,
-        0x16, 0xa6, 0x88, 0x3c,       
-    ];
-*/
+   let input: [u32; 4] = [0x328831e0,  0x435a3137,  0xf6309807,  0xa88da234]; // by rows 
+    
+   
+  let key = vec![
+    0x2b7e1516,
+    0x28aed2a6,
+    0xabf71588,
+    0x09cf4f3c,
+]; // by columns 
 
-    let key =  [ 0x2b28ab09, 0x7eaef7cf, 0x15d2154f, 0x16a6883c];
-
-let  add = add_round_key(input, key);
- let sub = sub_bytes(S_BOX, add);
- let shifted = shift_rows(sub);
-
- let mixed = mix_columns(shifted, MIX_COLUMNS_MATRIX);
+let keys = keys_generation(&key);
 
 
-for val in mixed.iter() {
-    print!("{:08x} ", val);
-}
-println!();  
-//let nr = aes_rounds(key.len());   
-//
-//let keys =  keys_generation (&key);
-//
-//
-//let start =   Instant::now();
-//
-//let  encrypted = loop_encrypt(input,  &keys , nr, 65536 );
+let start =   Instant::now();
 
-//let mut blocks = vec![input; 65536];
-//
-//for block in &mut blocks {
-//    *block = aes_encrypt(*block, &keys, nr);
-//}
-// let duration = start.elapsed();
+//et  encrypted = loop_encrypt(input,  &keys ,  65536 );
+let mut encrypted = input;
+
+let mut blocks = vec![input; 65536];
+
+ let duration = start.elapsed();
+
+
+ println!("Encryption took: {:?} ", duration);
+
+let decrypted = loop_decrypt(encrypted, &keys,65536 );
 
 
 
-// println!("Encryption took: {:?} ", duration);
-
-// let decrypted = loop_decrypt(encrypted, &keys, nr,65536 );
-
-
-
-   let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true) // clear file at start
-        .open("ciphertext.txt")
-        .expect("Unable to open file"); 
+  // let mut file = OpenOptions::new()
+  //      .create(true)
+  //      .write(true)
+  //      .truncate(true) // clear file at start
+  //      .open("ciphertext.txt")
+  //      .expect("Unable to open file"); 
 
         
 
      
-    // for row in &encrypted {
+    // for row in &decrypted {
     //     for byte in row {
     //         write!(file, "{:02x} ", byte).unwrap();
     //     }
@@ -468,13 +390,6 @@ println!();
     // }
     // writeln!(file).unwrap();
 
-
-  //  for row in &decrypted {
-  //      for byte in row {
-  //          print!("{:02x} ", byte);
-  //      }
-  //     println!();
-  //  }
 
 }
 
