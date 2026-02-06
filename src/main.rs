@@ -15,8 +15,9 @@ fn add_round_key(input: [u32; 4], key: [u32; 4]) -> [u32; 4] {
 fn shift_rows (input: [u32; 4]) -> [u32; 4]
 {
     let mut result = [0u32; 4];
-     for i in 0..4 {
-            result[i] = input[i]<<8*i  | input[i] >> (32 - 8*i); 
+    result[0] = input[0];
+     for i in 1..4 {
+            result[i] =  (input[i]<< 8*i ) | (input[i] >> (32 - 8*i) ); 
         
     }
     result
@@ -56,6 +57,9 @@ fn sub_bytes(sub :[[u8; 16]; 16], input: [u32; 4]) -> [u32; 4]
        return result;
  
     }
+/* 
+
+
 
 
 fn dot_prod_mod(a: u16, b: u16) -> u8
@@ -83,38 +87,85 @@ fn dot_prod_mod(a: u16, b: u16) -> u8
   }
    sum as u8
 }
+   */
 
+fn dot_prod_mod(a: u16, b: u16) -> u8 {
+    let mut sum: u16 = 0;
+
+    for i in 0..8 {
+        if (b >> i) & 1 == 1 {
+            sum ^= a << i;
+        }
+    }
+
+    for i in (8..16).rev() {
+        if (sum >> i) & 1 == 1 {
+            sum ^= (MOD as u16) << (i - 8);
+        }
+    }
+
+    sum as u8
+}
+
+
+fn mix_columns(input: [u32; 4], matrix: [[u8; 4]; 4]) -> [u32; 4] {
+    let mut result = [0u32; 4];
+
+    // each matrix row produces one output word
+    for i in 0..4 {
+        let mut out_word: u32 = 0;
+
+        // each byte position inside the word
+        for k in 0..4 {
+            let mut acc: u8 = 0;
+
+            // dot product: matrix row × input column bytes
+            for j in 0..4 {
+                let shift = 8 * (3 - k);
+                let byte = ((input[j] >> shift) & 0xFF) as u16;
+
+                acc ^= dot_prod_mod(matrix[i][j] as u16, byte);
+            }
+
+            out_word |= (acc as u32) << (8 * (3 - k));
+        }
+
+        result[i] = out_word;
+    }
+
+    result
+}
+
+/* 
  fn mix_columns(input: [u32; 4], matrix: [[u8; 4]; 4])-> [u32;4]
  { 
     let mut  result = [0u32; 4];
     
-     for col in 0..4
+     for  i  in 0..4
      {
+        let mut  r =0;
+        
+        for  row  in 0..4
+        { 
+            let mut item = 1u8;
 
-        let  mut  item ;
-        for  row in 0..4
-        {
-                 
-                    item =0;
-                    for j in 0..4
-                    {
-
-
-                    let a = matrix[row][j] as u16;  
-                    let b = input[j][col] as u16;
-                    let prod = dot_prod_mod(b, a);
-                    item ^= prod;
-
-
-                  }  
-                 result[row][col]= item;
- 
-         }
+            for  k in 0..4
+            {
+                let mask = 8 * (3 - k);
+                let  shift = ((input[row] >> mask) & 0xFF) as u16; 
+                item ^= dot_prod_mod(matrix[i][row] as u16, shift as u16);
+            
+            }
+              
+            r |= (item as u32) << (8 * (3 - row) );
+        }
+                result [i]= r;
+         
      }
 
     return result;
  }  
-
+*/
 /* 
 fn   aes_encrypt (input: [[u8; 4]; 4], rounds_keys: &Vec<[[u8; 4];4]>, nr: usize) -> [[u8;4];4]
 {
@@ -339,7 +390,8 @@ fn  loop_decrypt(input: [[u8; 4]; 4] ,  keys : &Vec<[[u8;4 ];4 ]>, nr : usize, b
  use std::io::Write;
 
 
- use std::time::Instant;
+ use std::os::windows::process;
+use std::time::Instant;
 
 
 fn main() {
@@ -366,7 +418,11 @@ fn main() {
 let  add = add_round_key(input, key);
  let sub = sub_bytes(S_BOX, add);
  let shifted = shift_rows(sub);
-for val in shifted.iter() {
+
+ let mixed = mix_columns(shifted, MIX_COLUMNS_MATRIX);
+
+
+for val in mixed.iter() {
     print!("{:08x} ", val);
 }
 println!();  
