@@ -1,9 +1,6 @@
 
 mod matrix;
-use matrix::{S_BOX,  MIX_COLUMNS_MATRIX,MOD, INV_MIX_COLUMNS_MATRIX, INV_S_BOX, };
-use std::fs::OpenOptions;
-
-mod rounds_keys;
+use matrix::{S_BOX,  MIX_COLUMNS_MATRIX,MOD, INV_MIX_COLUMNS_MATRIX, INV_S_BOX};
 
 
 fn add_round_key(input: [u32; 4], key: [u32; 4]) -> [u32; 4] {
@@ -28,11 +25,24 @@ fn shift_rows (input: [u32; 4]) -> [u32; 4]
 fn rev_shift_rows (input: [u32; 4]) -> [u32; 4]
 {
     let mut result = [0u32; 4];
-     for i in 0..4 {
+    result[0] = input[0];
+
+     for i in 1..4 {
         result[i] = (input[i] >> (8*i)) | (input[i] << (32 - 8*i));
     }
     result
 }
+    /* 
+    fn rev_shift_rows(input: [u32; 4]) -> [u32; 4] {
+    let mut result = [0u32; 4];
+
+    for i in 0..4 {
+        result[i] = input[i].rotate_right(8 * i as u32);
+    }
+
+    result
+}
+*/
      
 
 
@@ -58,66 +68,56 @@ fn sub_bytes(sub :[[u8; 16]; 16], input: [u32; 4]) -> [u32; 4]
  
     }
 
+#[inline]
+fn dot_prod_mod(a: u8, b: u8) -> u8 {
+    let mut sum: u16 = 0;
 
-fn dot_prod_mod(a: u16, b: u16) -> u8
-{
+    // multiply
+    for i in 0..8 {
+        if ((b >> i) & 1) != 0 {
+            sum ^= (a as u16) << i;
+        }
+    }
 
-    let mut  sum = 0u16;
-   
-   for   i in 0..8
-   {
-      let mask =(b >> i ) & 1;
-      if mask ==1
-      {
-         sum ^= a << i ;
-         
-      }
-  for i in (8..16).rev()
-  {
-      if (sum >> i ) & 1 ==1
-      {
-        sum ^= (MOD as u16) << (i -8);
-      }
-  }
+    // reduce modulo AES polynomial
+    for i in (8..16).rev() {
+        if ((sum >> i) & 1) != 0 {
+            sum ^= (MOD as u16) << (i - 8);
+        }
+    }
 
- 
-  }
-   sum as u8
+    sum   as u8 
 }
 
 
-fn mix_columns(input: [u32; 4], matrix: [[u8; 4]; 4])-> [u32;4]
- { 
-    let mut  result = [1u32; 4];
-    
-     for  i  in 0..4   
-     {
-        let mut  r =0;
-        
+fn mix_columns(input: [u32; 4], matrix: [[u8; 4]; 4]) -> [u32; 4] {
+      let mut result = [0u32; 4];
 
-        for  col   in 0..4
+       for  i in 0..4
+       
+       {
 
-        { 
-            let mut item = 0u8;
+         let mut  result_word = 0u32;
+          for row in 0.. 4 
+          {
+              let mut item = 0u32;
 
-            for  row in 0..4
-            {
-                let mask = 8 * (3 - col);
-                let  shift = ((input[row] >> mask) & 0xFF) as u16; 
-                item ^= dot_prod_mod(matrix[i][row] as u16, shift as u16);
+              item =((dot_prod_mod(((input[row] >> 24 )& 0xFF) as u8, matrix[i][row]) as u32) << 24)
+                    | ((dot_prod_mod(((input[row] >> 16 )& 0xFF) as u8, matrix[i][row])) as u32) << 16
+                   |  ((dot_prod_mod(((input[row] >> 8 ) as u8)& 0xFF, matrix[i][row]))  as u32)<< 8
+                   | ((dot_prod_mod((input[row] & 0xFF) as u8, matrix[i][row])as u32));
+
+                 result_word  ^= item;
             }
-              
-              r |= (item as u32) << (8 * (3 - col) );
+            result[i] = result_word;
+       }
 
-        }
-                result [i]= r;
-         
-     }
+result
 
-    return result;
- }  
 
-        
+ }
+
+    
 fn   encrypt (input: [u32; 4], rounds_keys:&Vec<[u32; 4]> , nr: usize) -> [u32;4]
 {
      let  mut  enc = input ;
@@ -227,8 +227,7 @@ fn  left_rot (input:   u32) -> u32
      }
       
 
-     let rcon = rcon_gen(rounds);
-
+    let rcon = rcon_gen(rounds);
       for  i  in    nk..word_count
         {
 
@@ -254,13 +253,15 @@ fn rcon_gen(rounds: usize) -> Vec<u8>
 
 {
 
-   let mut result = Vec::with_capacity(rounds + 1);
+  let mut  result = Vec::with_capacity(rounds+1 );
+
+
     result.push(0x00);
     result.push(0x01);
 
     for  i in   2..=rounds 
     {
-         result.push(dot_prod_mod(0x02, result[i -1] as u16));      
+         result.push(dot_prod_mod(0x02, result[i -1] as u8));      
     }
     result
 
@@ -338,6 +339,7 @@ fn  loop_decrypt(input: [u32;4] ,  keys : &Vec<[u32; 4]>, block_count : usize) -
 
 
 use std::mem::swap;
+use std::result;
 use std::time::Instant;
 
 
@@ -358,37 +360,22 @@ let keys = keys_generation(&key);
 
 let start =   Instant::now();
 
-//et  encrypted = loop_encrypt(input,  &keys ,  65536 );
-let mut encrypted = input;
-
-let mut blocks = vec![input; 65536];
-
- let duration = start.elapsed();
+let  encrypted = loop_encrypt(input,  &keys ,  65536 );
+let duration: std::time::Duration = start.elapsed();
 
 
- println!("Encryption took: {:?} ", duration);
+for i in 0..4{
+    println!("{:08x} ", encrypted[i]);
+}
+
+
+println!("Encryption took: {:?} ", duration);
 
 let decrypted = loop_decrypt(encrypted, &keys,65536 );
-
-
-
-  // let mut file = OpenOptions::new()
-  //      .create(true)
-  //      .write(true)
-  //      .truncate(true) // clear file at start
-  //      .open("ciphertext.txt")
-  //      .expect("Unable to open file"); 
-
-        
-
+ for i  in &decrypted  {
+    println!("{:08x} ", i);
      
-    // for row in &decrypted {
-    //     for byte in row {
-    //         write!(file, "{:02x} ", byte).unwrap();
-    //     }
-    //     writeln!(file).unwrap();
-    // }
-    // writeln!(file).unwrap();
+ }
 
 
 }
