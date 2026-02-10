@@ -11,6 +11,9 @@
 
     }
 
+     fn sub (input  : u8 , key : u8 )-> u8{
+        input.wrapping_sub(key)
+     } 
     fn  addition (input : [u8; 16] , key : [u8; 16],  key_round : usize ) -> [u8; 16]
     {
         let  mut sum_byte  =  [0u8; 16] ;
@@ -58,10 +61,28 @@
     sum_byte
     }
 
-    fn  exponent (input : [u8; 16]) -> [u8; 16]
+
+
+fn substitution(input: [u8; 16], key: [u8; 16], key_round: usize) -> [u8; 16] {
+    let mut result = [0u8; 16];
+    for i in 0..16 {
+        let is_xor_type = (i % 4 == 0) || (i % 4 == 3);
+        if key_round == 1 {
+            // Inverse of encrypt Round Key 1
+            result[i] = if is_xor_type { input[i] ^ key[i] } else { input[i].wrapping_sub(key[i]) };
+        } else {
+            // Inverse of encrypt Round Key 2
+            result[i] = if is_xor_type { input[i].wrapping_sub(key[i]) } else { input[i] ^ key[i] };
+        }
+    }
+    result
+}
+
+    fn  exponent (input : [u8; 16], order : usize ) -> [u8; 16]
     {
         let  mut exp_byte = [0u8; 16] ;
-
+  if  order==1 
+  {
     for  i in 0 .. 16 
     {
 
@@ -80,20 +101,44 @@
                     exp_byte[i] = out_byte;
 
     }
+
+}
+else
+{
+    for  i in 0 .. 16 
+    {
+
+            // let shift = 8 * (15 - i);
+            //let input_byte : u8 = ((input >> shift) & 0xFF) as u8;
+
+            let out_byte= if  (i % 4 ==0)  || (i % 4 == 3 )  
+            {
+                LOG_TABLE[input[i] as usize] 
+            }
+            else
+            {
+                EXP_TABLE[input[i] as usize] 
+            };
+                    //  exp_byte |= (out_byte  as u128 ) << shift;
+                    exp_byte[i] = out_byte;
+
+    } 
+}
     exp_byte
     }
-
-    fn matrix_mul(m: [[u8; 16]; 16], x: [u8; 16]) -> [u8; 16] {
-        let mut result = [0u8; 16];
-        for i in 0..16 {
-            let mut sum: u32 = 0;
-            for j in 0..16 {
-                sum += (m[i][j] as u32) * (x[j] as u32);
-            }
-            result[i] = (sum & 0xFF) as u8;
+fn matrix_mul(m: [[u8; 16]; 16], x: [u8; 16]) -> [u8; 16] {
+    let mut result = [0u8; 16];
+    for i in 0..16 { // 'i' is the row of the matrix
+        let mut sum: u8 = 0;
+        for j in 0..16 { // 'j' is the column of the matrix / index of input
+            // Multiply and wrap at 256
+            let term = m[i][j].wrapping_mul(x[j]);
+            sum = sum.wrapping_add(term);
         }
-        result
+        result[i] = sum;
     }
+    result
+}
     /* 
     fn  matrix_mul(m: [[u8;16];16], x: [u8;16]) -> [u8;16] {
         let mut res = [0u8;16];
@@ -129,7 +174,7 @@
 
     use std::io::{self, Write};
 
-    fn round (input : [u8; 16], key : [[u8; 16]; 17] , rounds : usize) ->  [u8; 16]
+    fn  encrypt (input : [u8; 16], key : [[u8; 16]; 17] , rounds : usize) ->  [u8; 16]
     {  
         let mut result = input;
     
@@ -138,7 +183,7 @@
             let add1= addition(result, key[2*i-2],  1);
             
 
-            let exp= exponent(add1);
+            let exp= exponent(add1, 1);
            
             let add2  =addition(exp, key[2*i-1],  2);
              
@@ -149,35 +194,45 @@
 
               
         } 
+         result = addition(result, key[16], 1);
     result
 
     }
+fn decrypt(ciphertext: [u8; 16], keys: [[u8; 16]; 17]) -> [u8; 16] {
+    // 1. Undo the final output transformation (Key 17 / index 16)
+    // The final step of encryption was addition(..., 1), so we undo that.
+    let mut result = substitution(ciphertext, keys[16], 1);
 
+    for i in (1..=8).rev() {
+        // 2. Undo Matrix (using M_INVERSE)
+        result = matrix_mul(M_INVERSE, result);
 
-    fn  encrypt(plaintext : [u8; 16] , keys : [[u8; 16]; 17]  ) -> [u8; 16]
-    {
-        let mut result = round(plaintext, keys, 8);
-            result = addition(result, keys[16], 1);
+        // 3. Undo Key Addition 2 (the one after S-box)
+        result = substitution(result, keys[2*i-1], 2);
 
-    result
+        // 4. Undo S-box (Order 2 swaps EXP and LOG)
+        result = exponent(result, 2);
 
+        // 5. Undo Key Addition 1 (the one before S-box)
+        result = substitution(result, keys[2*i-2], 1);
     }
+    result
+}
 
-
-
+/*
     fn decrypt(ciphertext : [u8; 16] , keys : [[u8; 16]; 17]  ) -> [u8; 16]
     {
-        let mut result = addition(ciphertext, keys[16], 1);
+        let mut result = substitution(ciphertext, keys[16], 2);
 
         for i in (1..=8).rev() 
         {
             let mixed = matrix_mul(M_INVERSE, result);
-            let add2 = addition(mixed, keys[2*i-1], 2);
-            let exp = exponent(add2);
-            result = addition(exp, keys[2*i-2], 1);
+            let add2 = substitution(mixed, keys[2*i-1], 1);
+            let exp = exponent(add2, 2);
+            result = substitution(exp, keys[2*i-2], 1);
         }
         result
-    }
+    }*/
 
 
     fn bytes_to_u128(x: [u8; 16]) -> u128 {
@@ -207,7 +262,7 @@
         224,31,182,10,12,255,84,70,
         127,13,89,249,9,57,165,220
     ];
-    let ciphertext = encrypt(plaintext, KEYS);
+    let ciphertext = encrypt(plaintext, KEYS, 8);
     for   i in 0..ciphertext.len() {
         print!("{} ", ciphertext[i]);
     }
@@ -220,7 +275,7 @@
      }
      
      println!();
-
+ println!("{}" , sub(0, 1));
    
     //  let ciphertext = round(plaintext, key, 8);
 
