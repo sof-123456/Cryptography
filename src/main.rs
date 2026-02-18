@@ -1,19 +1,7 @@
 mod tables;
 use tables::{EXP_TABLE, LOG_TABLE, M, KEYS, M_INVERSE,BIASES};
  
-    
-    
-    fn add (input : u8,  key : u8   ) -> u8
-    {
-      //  let  sum : u16 = input as u16 + key as u16;
-       // return   (sum  & 0xFF) as u8;
-          input.wrapping_add(key)
 
-    }
-
-     fn sub (input  : u8 , key : u8 )-> u8{
-        input.wrapping_sub(key)
-     } 
 
 
     fn addition(input: [u8; 16], key: [u8; 16], key_round: usize) -> [u8; 16] {
@@ -31,55 +19,6 @@ use tables::{EXP_TABLE, LOG_TABLE, M, KEYS, M_INVERSE,BIASES};
     }
     sum_byte
 }
-  
-  /*  fn  addition (input : [u8; 16] , key : [u8; 16],  key_round : usize ) -> [u8; 16]
-    {
-        let  mut sum_byte  =  [0u8; 16] ;
-
-    for  i in 0 .. 16 
-    {
-
-            // let shift = 8 * (15 - i);
-        //  let input_byte : u8 = ((input >> shift) & 0xFF) as u8;
-            // let key_byte : u8 = ((key >> shift) & 0xFF) as u8;
-
-        //  let  out_byte : u8;
-            if key_round == 1 {
-            
-            if  (i % 4 ==0)  || (i % 4 == 3 )  
-            {
-                // out_byte=input_byte ^  key_byte ;
-                sum_byte[i] =  input[i] ^  key[i] ;
-            }
-            else
-            {
-                    //  out_byte=   add(input_byte, key_byte) ;
-                    sum_byte[i] =   add(input[i], key[i]) ;
-            }
-        }    
-        else
-        {
-            if  (i % 4 ==0)  || (i % 4 == 3 )  
-            {
-                sum_byte[i] =   add(input[i], key[i]) ;
-
-            }
-            else
-            {
-                //  out_byte=  input_byte ^  key_byte ; 
-                sum_byte[i] =  input[i] ^  key[i]  ;
-
-            }
-        }
-                
-                    // sum_byte |= (out_byte  as u128 ) << shift;
-
-
-    }
-    sum_byte
-    }
-
-*/
 
 fn substitution(input: [u8; 16], key: [u8; 16], key_round: usize) -> [u8; 16] {
     let mut result = [0u8; 16];
@@ -102,9 +41,7 @@ fn substitution(input: [u8; 16], key: [u8; 16], key_round: usize) -> [u8; 16] {
     for  i in 0 .. 16 
     {
 
-            // let shift = 8 * (15 - i);
-            //let input_byte : u8 = ((input >> shift) & 0xFF) as u8;
-
+           
             let out_byte= if  (i % 4 ==0)  || (i % 4 == 3 )  
             {
                 EXP_TABLE[input[i] as usize] 
@@ -113,7 +50,6 @@ fn substitution(input: [u8; 16], key: [u8; 16], key_round: usize) -> [u8; 16] {
             {
                 LOG_TABLE[input[i] as usize] 
             };
-                    //  exp_byte |= (out_byte  as u128 ) << shift;
                     exp_byte[i] = out_byte;
 
     }
@@ -124,8 +60,6 @@ else
     for  i in 0 .. 16 
     {
 
-            // let shift = 8 * (15 - i);
-            //let input_byte : u8 = ((input >> shift) & 0xFF) as u8;
 
             let out_byte= if  (i % 4 ==0)  || (i % 4 == 3 )  
             {
@@ -135,7 +69,6 @@ else
             {
                 EXP_TABLE[input[i] as usize] 
             };
-                    //  exp_byte |= (out_byte  as u128 ) << shift;
                     exp_byte[i] = out_byte;
 
     } 
