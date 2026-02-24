@@ -18,30 +18,38 @@ fn rc4(key: &[u8]) {
         j = (j + s[i] as usize + t[i] as usize) % 256;
         s.swap(i, j); // swap s[i] and s[j]
     }
+for i in 0..256
+{
+    print!("{}  ", s[i]);
+}
+
 
     // Pseudo-random generation algorithm (PRGA)
     let mut i = 0usize;
     let mut j = 0usize;
+  
+  for _ in 0..256 
+  //while  256
 
-  //  for _ in 0..16 
-  while  true  
   { // generate first 16 bytes as example
         i = (i + 1) % 256;
         j = (j + s[i] as usize) % 256;
         s.swap(i, j);
         let t_index = (s[i] as usize + s[j] as usize) % 256;
         let k = s[t_index];
-        print!("{:02X} ", k); // print in hex
+     //   print!("{:02X} ", k); // print in hex
     }
     println!();
 }
 
 fn main() {
-    let mut key = [0u8; 16];
-    for i in 0..16 {
-        key[i] = i as u8;
+    let mut key = [0u8; 256];
+    key[0]=0;
+    key[1]= 0;
+    for i in 1..255 {
+       // key[i] = i as u8;
+      key[i+1] = (256   - i) as u8;   //  all 
     }
     rc4(&key);
 }
-
 
